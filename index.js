@@ -11,13 +11,14 @@ let config = {
 
 wilddog.initializeApp(config);
 
-let ref = wilddog.sync().ref();
+let sync = wilddog.sync();
+let ref = sync.ref();
 
 // 清空原来的数据
 // ref.child('tree_folder').remove();
 
 // 查询，如无数据则初始化数据
-ref.once('value', (snapshot) => {
+ref.on('value', (snapshot) => {
     if (!snapshot.hasChild('tree_folder')) {
         fs.readFile('./data/db.json', 'utf8', function (err, data) {
             if (err) throw err;
@@ -29,21 +30,39 @@ ref.once('value', (snapshot) => {
         });
     }
 })
+ref.off();
 
-let files = wilddog.sync().ref('tree_folder/files');
+let files = sync.ref('tree_folder/files');
 // console.log(files.val());
-files.orderByChild('id').once('value', (snapshot) => {
-    // console.log(snapshot.val())
-});
+
+let getChildFolder = (
+    refs => (
+        id => (
+            refs[id] || (refs[id] = files.child(id))
+        )
+    )    
+)({});
 
 // hapi server
 let server = new hapi.Server();
 const port = 3333;
 server.connection({
     host: '0.0.0.0',
-    port
+    port,
+    routes: {
+        cors: true
+    }
 });
 
+// 没用了
+// let getOnValue = reply => 
+//     snapshot => {
+//         if (snapshot) {
+//             // console.log(Date.now() - now);
+//             return reply(snapshot.val());
+//         }
+//         return reply().code(404);
+//     };
 server.route([{
     method: 'GET',
     path: '/',
@@ -52,7 +71,43 @@ server.route([{
     method: 'get',
     path: '/files',
     handler: (req, reply) => {
-        return reply({params: req.params, query: req.query, payload:　req.payload});
+        let {query} = req;
+        let {pid} = query;
+        let rep = val => reply(val);
+        if (pid !== undefined) {
+            files.orderByChild('pid').on('value', snapshot => {
+                let len = snapshot.numChildren();
+                let res = [];
+                    snapshot.forEach( (ss) => {
+                        let val = ss.val();
+                        console.log(pid, val.pid, pid == val.pid);
+                        if (val.pid == pid) {
+                            // rep(val);
+                            // return true;
+                            res.push(val);
+                        }
+                        if (len - 1) {
+                            len -= 1;
+                        } else {
+                            rep(res);
+                        }
+                    })
+                    // return reply(snapshot.val());
+                // return reply().code(404);
+            })
+        }
+        else {
+            // 对不带参数的 files 请求，直接返回列表
+            files.on('value', snapshot => {
+                let len = snapshot.numChildren();
+                let res = [];
+                    snapshot.forEach( (ss) => {
+                        res.push(ss.val());
+                    })
+                return reply(res);
+            })
+        }
+        // return reply({params: req.params, query: req.query, payload:　req.payload});
     }
 }, {
     method: 'post',
@@ -60,32 +115,58 @@ server.route([{
     handler: (req, reply) => {
         // 随便生成个ID
         let id = (Math.random() + '').substr(2);
-        let payload = req.payload;
+        let {payload} = req;
+        console.log(payload);
         if (!payload) {
             return reply().code(500);
         }
-        console.log(payload);
         let folder = Object.assign(payload, {
             id,
             lastModified: Date.now()
         })
-        files.set(id, folder);
+        files.child(id).set(folder);
+        let {pid} = payload;
+        if (pid != 0) {
+            console.log(pid);
+            files.child(pid).once('value', snapshot => {
+                let val = snapshot.val();
+                let num = val.folderNumber || 0;
+                console.log(val, num);
+                files.child(pid).update({folderNumber: num - 0 + 1});
+            })
+            
+        }
+        
+        // files.set(id, folder);
         return reply(folder);
     }
 }, {
     method: 'get',
     path: '/files/{id}',
     handler: (req, reply) => {
-        let id = req.params.id;
-        let now = Date.now();
-        files.child(id).once('value').then(snapshot => {
-            if (snapshot) {
-                console.log(Date.now() - now);
+        let {id} = req.params;
+        // let now = Date.now();
+        // 将事件监听函数引用到 reply上，以避免重复监听
+        // 后来发现 reply 每次请求都是新的，所以根本不存在重复监听的问题
+        // console.log(reply.onValue);
+        // if (!reply.onValue) {
+        //     reply.onValue = getOnValue(reply);
+        // }        
+        // getChildFolder(id).on('value')
+        files.child(id).on('value', snapshot => {
+            if (snapshot.exists()) {
+                // console.log(Date.now() - now);
                 return reply(snapshot.val());
             }
             return reply().code(404);
         })
-        
+        // files.child(id).on('value', snapshot => {
+        //     if (snapshot) {
+        //         console.log(Date.now() - now);
+        //         return reply(snapshot.val());
+        //     }
+        //     return reply().code(404);
+        // })
     }
 }])
 

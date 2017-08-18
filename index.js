@@ -2,7 +2,8 @@ const hapi = require('hapi');
 const wilddog = require('wilddog');
 const fs = require('fs');
 const path = require('path');
-
+const h2o2 = require('h2o2');
+const inert = require('inert');
 
 // wilddog 数据
 let config = {
@@ -45,11 +46,30 @@ let getChildFolder = (
 
 // hapi server
 let server = new hapi.Server();
+
+function startServer() {
+    
+    server.start((err, info) => {
+        if (err) throw err;
+        console.log(`Hapi Server start at ${port}`)
+    })
+}
+server.register({
+    register: h2o2
+}, function (err) {
+
+    if (err) {
+        console.log('Failed to load h2o2');
+    }
+
+    startServer();
+});
 const port = 3333;
 server.connection({
     host: '0.0.0.0',
     port,
     routes: {
+        // 允许跨域访问
         cors: true
     }
 });
@@ -63,6 +83,18 @@ server.connection({
 //         }
 //         return reply().code(404);
 //     };
+// 静态托管目录下所有资源(当没有对应的 route 时, 走这里)
+server.route({
+    method: 'GET',
+    path: '/{param*}',
+    handler: {
+        directory: {
+            path: '.',
+            redirectToSlash: true,
+            index: true
+        }
+    }
+});
 server.route([{
     method: 'GET',
     path: '/',
@@ -170,8 +202,26 @@ server.route([{
     }
 }])
 
+// 测试代理
+server.route({
+    method: 'get',
+    path: '/api/{trueUrl*}',
+    // handler: {
+    //     proxy: {
+    //         uri: 'http://www.google.com.ph/?gfe_rd=cr&ei=2aeWWez_OenN8geVioqwAw'
+    //     }
+    // }
+    handler: function (req, reply) {
+        console.log('http://192.168.6.193:8080/(S(4zio3xoun3ajnlstl42n1o4i))/' + req.params.trueUrl)
+        reply.proxy({uri: 'http://192.168.6.193:8080/(S(4zio3xoun3ajnlstl42n1o4i))/' + req.params.trueUrl});
+    }
+})
 
-server.start((err, info) => {
-    if (err) throw err;
-    console.log(`Hapi Server start at ${port}`)
+// 纯测试
+server.route({
+    method: 'get',
+    path: '/apid',
+    handler: function (req, reply) {
+        reply('apidddddddddddd')
+    }
 })

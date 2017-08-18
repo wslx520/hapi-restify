@@ -11,5 +11,9 @@
   "dependencies": {
     "hapi": "^16.1.0",
     "wilddog": "^2.5.2"
+  },
+  "devDependencies": {
+    "h2o2": "^6.0.0",
+    "inert": "^4.2.1"
   }
 }
